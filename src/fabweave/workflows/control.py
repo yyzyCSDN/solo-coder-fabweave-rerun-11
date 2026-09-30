@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from fabweave.chamber.matching import Tolerance, mismatch_reasons
+from fabweave.chamber.matching import (
+    ChamberMatchReport,
+    Tolerance,
+    compare_chambers,
+    mismatch_reasons,
+)
 from fabweave.chemicals.shelf_life import shelf_life_remaining
 from fabweave.cleanroom.excursion import active_excursion
 from fabweave.contamination.segregation import incompatible_pairs
@@ -144,6 +149,72 @@ def chamber_sample_decision(
         sample = ()
     evidence = {"sample_wafer_ids": tuple(wafer.wafer_id for wafer in sample)}
     return deny(*reasons, **evidence) if reasons else allow(**evidence)
+
+
+def paired_chamber_decision(
+    golden_samples: list[object],
+    candidate_samples: list[object],
+    tolerance_rules: object,
+    window: TimeBox | None = None,
+    *,
+    minimum_pairs: int = 1,
+    pair_by: str = "auto",
+    max_time_delta: float | None = None,
+) -> Decision:
+    """Return a fail-closed workflow decision with the member-level report."""
+
+    report, decision = paired_chamber_report_decision(
+        golden_samples,
+        candidate_samples,
+        tolerance_rules,
+        window,
+        minimum_pairs=minimum_pairs,
+        pair_by=pair_by,
+        max_time_delta=max_time_delta,
+    )
+    return decision
+
+
+def paired_chamber_report_decision(
+    golden_samples: list[object],
+    candidate_samples: list[object],
+    tolerance_rules: object,
+    window: TimeBox | None = None,
+    *,
+    minimum_pairs: int = 1,
+    pair_by: str = "auto",
+    max_time_delta: float | None = None,
+    **options: object,
+) -> tuple[ChamberMatchReport, Decision]:
+    """Return both a chamber report and its immutable workflow decision."""
+
+    report = compare_chambers(
+        golden_samples,
+        candidate_samples,
+        tolerance_rules,
+        window,
+        minimum_pairs=minimum_pairs,
+        pair_by=pair_by,
+        max_time_delta=max_time_delta,
+        **options,
+    )
+    evidence = {
+        "report": report,
+        "status": report.status,
+        "conclusive": report.conclusive,
+        "member_samples": report.member_samples,
+        "rule_versions": report.rule_versions,
+        "deviations": report.deviations,
+    }
+    decision = allow(**evidence) if report.allowed else deny(*report.reasons, **evidence)
+    return report, decision
+
+
+# Domain-language aliases used by chamber matching workflows.
+chamber_pair_decision = paired_chamber_decision
+chamber_pair_report = compare_chambers
+paired_chamber_report = compare_chambers
+paired_chamber_comparison_decision = paired_chamber_report_decision
 
 
 def environmental_containment(
